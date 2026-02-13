@@ -1,0 +1,300 @@
+# %% [markdown]
+# # Why Subscription Metadata Fails to Predict Churn: A Product Analytics Investigation
+#
+# **Research question:** Can subscription-level commercial metadata predict churn effectively?
+#
+# **Hypothesis:** Commercial metadata alone will have weak predictive power; engagement/behavior signals will be stronger,
+# especially for early churn.
+
+# %%
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score, classification_report
+
+# %%
+DATA_DIR = r"C:\Users\hanna\Ayesha_Projects\projects\SaaS-churn-data\data\raw"
+
+SUBS_PATH = rf"{DATA_DIR}\ravenstack_subscriptions.csv"
+CHURN_EVENTS_PATH = rf"{DATA_DIR}\ravenstack_churn_events.csv"
+FEATURE_USAGE_PATH = rf"{DATA_DIR}\ravenstack_feature_usage.csv"
+
+# %% [markdown]
+# ## Load dataset and clean
+
+# %%
+df_subscriptions = pd.read_csv(SUBS_PATH, parse_dates=["start_date", "end_date"])
+
+active_end = df_subscriptions["end_date"].fillna(pd.Timestamp.today().normalize())
+df_subscriptions["tenure_days"] = (active_end - df_subscriptions["start_date"]).dt.days
+
+df_subscriptions.head()
+
+# %% [markdown]
+# ## Exploratory Lifecycle Analysis
+
+# %%
+def lifestage(row):
+    if row["churn_flag"]:
+        return "churned"
+    elif row["is_trial"]:
+        return "trial"
+    else:
+        return "active"
+
+df_subscriptions["lifestage"] = df_subscriptions.apply(lifestage, axis=1)
+df_subscriptions["lifestage"].value_counts()
+
+# %%
+subscriptions_per_stage_counts = (
+    df_subscriptions["lifestage"]
+    .value_counts()
+    .reindex(["trial", "active", "churned"])
+)
+
+subscriptions_per_stage_counts_percentages = subscriptions_per_stage_counts / subscriptions_per_stage_counts.sum()
+
+subscriptions_per_stage_counts, subscriptions_per_stage_counts_percentages
+
+# %%
+subscriptions_per_stage_and_plan = (
+    df_subscriptions
+    .groupby(["plan_tier", "lifestage"], sort=False)
+    .size()
+    .rename("subscription_count")
+    .reset_index()
+)
+
+subscriptions_per_stage_and_plan["pct"] = (
+    subscriptions_per_stage_and_plan["subscription_count"] /
+    subscriptions_per_stage_and_plan.groupby("plan_tier")["subscription_count"].transform("sum") * 100
+).round(1)
+
+subscriptions_per_stage_and_plan
+
+# %%
+df_subscriptions.groupby("lifestage")["tenure_days"].describe()
+
+# %%
+df_subscriptions.boxplot(column="tenure_days", by="lifestage", grid=False)
+plt.suptitle("")
+plt.title("Tenure by Lifecycle Stage")
+plt.ylabel("Tenure (days)")
+plt.show()
+
+# %% [markdown]
+# ## Churn timing and subscriptions
+
+# %%
+def churn_timing(row):
+    if row["churn_flag"]:
+        if row["tenure_days"] <= 7:
+            return "early_churn"
+        elif row["tenure_days"] <= 30:
+            return "mid_churn"
+        else:
+            return "late_churn"
+    else:
+        return "not_churned"
+
+df_subscriptions["churn_timing"] = df_subscriptions.apply(churn_timing, axis=1)
+
+churned_df = df_subscriptions[df_subscriptions["churn_timing"].isin(["early_churn", "mid_churn", "late_churn"])]
+
+churn_counts = (
+    churned_df.groupby(["plan_tier", "churn_timing"], sort=False)
+    .size()
+    .reset_index(name="count")
+)
+
+churn_counts["pct"] = (
+    churn_counts["count"] /
+    churn_counts.groupby("plan_tier")["count"].transform("sum") * 100
+).round(1)
+
+churn_counts.sort_values(by=["plan_tier", "churn_timing"], inplace=True)
+churn_counts
+
+# %%
+sns.catplot(
+    data=churn_counts,
+    x="plan_tier", y="pct", hue="churn_timing",
+    kind="bar", height=5, aspect=1.6
+)
+plt.title("Churn Timing by Plan Tier")
+plt.ylabel("Percentage of Churned Subscriptions")
+plt.xlabel("Plan Tier")
+plt.show()
+
+# %% [markdown]
+# ## Load churn events and merge
+
+# %%
+df_churn_events = pd.read_csv(CHURN_EVENTS_PATH)
+df_churn_events["churn_date"] = pd.to_datetime(df_churn_events["churn_date"])
+
+df_churn_events = (
+    df_churn_events
+    .sort_values("churn_date")
+    .groupby("account_id", as_index=False)
+    .first()
+)
+
+merged_df = pd.merge(df_subscriptions, df_churn_events, on="account_id", how="left")
+merged_df.head()
+
+# %% [markdown]
+# ## Hypothesis testing (commercial features vs early churn)
+
+# %%
+merged_df["early_churner"] = merged_df["churn_timing"] == "early_churn"
+merged_df["auto_renew_flag"] = merged_df["auto_renew_flag"].fillna(False)
+merged_df["upgrade_flag"] = merged_df["upgrade_flag"].fillna(False)
+merged_df["downgrade_flag"] = merged_df["downgrade_flag"].fillna(False)
+
+merged_df.groupby("early_churner")["auto_renew_flag"].mean()
+
+# %%
+merged_df.groupby("early_churner")["upgrade_flag"].mean()
+
+# %%
+merged_df.groupby("early_churner")["downgrade_flag"].mean()
+
+# %%
+merged_df.groupby("early_churner")["tenure_days"].agg(["mean", "median"])
+
+# %%
+sns.boxplot(x="early_churner", y="tenure_days", data=merged_df)
+plt.title("Tenure Days Distribution by Early Churner Status")
+plt.xlabel("Early Churner")
+plt.ylabel("Tenure Days")
+plt.show()
+
+# %%
+merged_df.groupby("early_churner")["seats"].agg(["mean", "median"])
+
+# %%
+sns.boxplot(x="early_churner", y="seats", data=merged_df)
+plt.title("Seats Distribution by Early Churner Status")
+plt.xlabel("Early Churner")
+plt.ylabel("Seats")
+plt.show()
+
+# %%
+merged_df.groupby("early_churner")["mrr_amount"].agg(["mean", "median"])
+
+# %%
+sns.boxplot(x="early_churner", y="mrr_amount", data=merged_df)
+plt.title("MRR Distribution by Early Churner Status")
+plt.xlabel("Early Churner")
+plt.ylabel("MRR Amount")
+plt.show()
+
+# %% [markdown]
+# **Finding:** Early churn is not strongly differentiated by subscription-level commercial features.
+
+# %% [markdown]
+# ## Ultra-early churners (0–7 days)
+
+# %%
+merged_df["tenure_bucket"] = pd.cut(
+    merged_df["tenure_days"],
+    bins=[0, 7, 30, 90, np.inf],
+    labels=["0-7 days", "8-30 days", "31-90 days", "90+ days"]
+)
+
+early_churn_tenure_bucket_counts = (
+    merged_df[merged_df["early_churner"] == True]
+    .groupby("tenure_bucket")
+    .size()
+    .reset_index(name="count")
+)
+
+early_churn_tenure_bucket_counts["pct"] = (
+    early_churn_tenure_bucket_counts["count"] /
+    early_churn_tenure_bucket_counts["count"].sum() * 100
+).round(1)
+
+early_churn_tenure_bucket_counts
+
+# %%
+merged_df["ultra_early_churner"] = merged_df["tenure_days"] <= 7
+
+# %% [markdown]
+# ## Load feature usage and merge
+
+# %%
+df_feature_usage = pd.read_csv(FEATURE_USAGE_PATH)
+df_feature_usage["usage_date"] = pd.to_datetime(df_feature_usage["usage_date"])
+
+merged_df = merged_df.merge(df_feature_usage, on="subscription_id", how="left")
+merged_df.head()
+
+# %%
+early_churn_feature_usage = (
+    merged_df[merged_df["ultra_early_churner"] == True]
+    .groupby("feature_name")
+    .size()
+    .reset_index(name="usage_count")
+    .sort_values("usage_count", ascending=False)
+)
+
+early_churn_feature_usage
+
+# %% [markdown]
+# ## Predictive modeling: logistic regression baseline (commercial features only)
+
+# %%
+allowed_features = [
+    "seats",
+    "mrr_amount",
+    "is_trial",
+    "upgrade_flag",
+    "downgrade_flag",
+    "auto_renew_flag",
+    "plan_tier",
+    "billing_frequency"
+]
+
+X = merged_df[allowed_features].copy()
+X = pd.get_dummies(X, columns=["plan_tier", "billing_frequency"], drop_first=True)
+
+y = merged_df["churn_flag"].astype(int)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+model = LogisticRegression(max_iter=2000)
+model.fit(X_train, y_train)
+
+y_pred_proba = model.predict_proba(X_test)[:, 1]
+auc = roc_auc_score(y_test, y_pred_proba)
+auc
+
+# %%
+print("ROC AUC:", auc)
+print(classification_report(y_test, (y_pred_proba >= 0.5).astype(int)))
+
+coef_df = pd.DataFrame({
+    "feature": X.columns,
+    "coefficient": model.coef_[0]
+}).sort_values("coefficient", key=abs, ascending=False)
+print(f"coef_df:\n{coef_df}")
+# %% [markdown]
+# **Result:** ROC-AUC is near 0.5 → subscription-level commercial metadata has minimal predictive power.
+#
+# ## Conclusion
+# Subscription-level commercial metadata is insufficient to model churn accurately.
+#
+# ## Proposal: Track engagement / activation metrics
+# - Login frequency
+# - Time to first meaningful action
+# - Feature adoption depth
+# - Session duration & active days
+# - Trial milestone completion
+# - Activation (“aha moment”) events
