@@ -80,3 +80,11 @@ A baseline Logistic Regression model was trained using only subscription-level c
 
 ### 📊 Result
 
+An AUC close to 0.50 indicates performance near random guessing.
+
+### 🔎 Conclusion from Modeling
+
+Subscription-level commercial metadata does **not** meaningfully differentiate churn risk in this dataset.
+
+This suggests that churn behavior is likely driven by activation and engagement dynamics rather than pricing configuration, plan tier, or billing attributes.
+
