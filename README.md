@@ -84,7 +84,54 @@ An AUC close to 0.50 indicates performance near random guessing.
 
 ### 🔎 Conclusion from Modeling
 
-Subscription-level commercial metadata does **not** meaningfully differentiate churn risk in this dataset.
+ubscription-level commercial metadata does **not** meaningfully differentiate churn risk in this dataset.
 
-This suggests that churn behavior is likely driven by activation and engagement dynamics rather than pricing configuration, plan tier, or billing attributes.
+This suggests churn behavior is likely driven by activation and engagement dynamics rather than pricing configuration or billing attributes.
+
+---
+
+## 📊 Interactive Dashboard (Count)
+
+An executive-facing dashboard was built in **Count** to visualize:
+
+- Churn timing distribution by plan tier  
+- Early churn comparisons across commercial features  
+- Distribution overlap in MRR and seats  
+- High-level churn KPIs  
+
+👉 **View the interactive dashboard here:**  
+[Count Dashboard – Public Link](https://app.count.co/canvas/ETYO0D78PhN)
+
+---
+
+## 🧠 Strategic Takeaway
+
+Churn prediction cannot rely on pricing metadata alone.  
+Signal likely resides in activation milestones and behavioral engagement metrics.
+
+Recommended tracking improvements:
+
+- Login frequency
+- Time to first meaningful action
+- Feature adoption depth
+- Session duration
+- Trial milestone completion
+- Activation event tracking
+
+---
+
+## 🛠 Tech Stack
+
+- Python
+- Pandas / NumPy
+- Seaborn / Matplotlib
+- Scikit-learn
+- Count (BI dashboard)
+
+
+---
+
+## 📌 Key Insight
+
+You cannot predict churn using pricing knobs if churn is caused by customers never realizing value.
 
